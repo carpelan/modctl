@@ -147,13 +147,19 @@ func pushIfNotExist(ctx context.Context, pb *internalpb.ProgressBar, prompt stri
 
 	if exist {
 		pb.Add(prompt, desc.Digest.String(), desc.Size, bytes.NewReader([]byte{}))
-		// if the descriptor is the manifest, should check the tag existence as well.
+		// if the descriptor is the manifest, the tag must point at THIS
+		// manifest, not merely exist: a tag that points elsewhere is moved,
+		// and a registry that refuses to move it -- an immutable tag -- fails
+		// the push, where checking existence alone reported success while
+		// the tag still named the old content.
 		if desc.MediaType == ocispec.MediaTypeImageManifest {
-			_, _, err := dst.FetchReference(ctx, tag)
-			if err != nil {
-				// try to push the tag if error occurred when fetch reference.
+			tagged, rc, err := dst.FetchReference(ctx, tag)
+			if err == nil {
+				rc.Close()
+			}
+			if err != nil || tagged.Digest != desc.Digest {
 				if err := dst.Tag(ctx, desc, tag); err != nil {
-					err = fmt.Errorf("failed to push tag %s, err: %w", tag, err)
+					err = fmt.Errorf("failed to point tag %s at %s, err: %w", tag, desc.Digest, err)
 					pb.Abort(desc.Digest.String(), err)
 					return err
 				}
