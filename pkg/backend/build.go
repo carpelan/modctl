@@ -22,6 +22,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	retry "github.com/avast/retry-go/v4"
 	modelspec "github.com/modelpack/model-spec/specs-go/v1"
@@ -142,7 +143,7 @@ func (b *backend) Build(ctx context.Context, modelfilePath, workDir, target stri
 
 	// Build the model manifest.
 	if err := retry.Do(func() error {
-		_, err = builder.BuildManifest(ctx, layers, configDesc, manifestAnnotation(modelfile), hooks.NewHooks(
+		_, err = builder.BuildManifest(ctx, layers, configDesc, manifestAnnotation(modelfile, cfg.NoCreationTime), hooks.NewHooks(
 			hooks.WithOnStart(func(name string, size int64, reader io.Reader) io.Reader {
 				return pb.Add(internalpb.NormalizePrompt("Building manifest"), name, size, reader)
 			}),
@@ -216,11 +217,20 @@ func (b *backend) process(ctx context.Context, builder build.Builder, workDir st
 }
 
 // manifestAnnotation returns the annotations for the manifest.
-func manifestAnnotation(modelfile modelfile.Modelfile) map[string]string {
-	anno := map[string]string{
-		annotationModelfile: string(modelfile.Content()),
+//
+// Content() begins with a "# Generated at <now>" line, which is right for a
+// Modelfile written for a person and wrong in a manifest built with
+// --no-creation-time: it made every repeated build a new digest. Without a
+// creation time the line is left out, so no clock reaches the manifest.
+func manifestAnnotation(modelfile modelfile.Modelfile, noCreationTime bool) map[string]string {
+	content := string(modelfile.Content())
+	if noCreationTime && strings.HasPrefix(content, "# Generated at ") {
+		if _, rest, found := strings.Cut(content, "\n"); found {
+			content = strings.TrimLeft(rest, "\n")
+		}
 	}
-	return anno
+
+	return map[string]string{annotationModelfile: content}
 }
 
 // getSourceInfo returns the source information for the build.
