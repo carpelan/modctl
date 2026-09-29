@@ -56,21 +56,19 @@ func (b *backend) Fetch(ctx context.Context, target string, cfg *config.Fetch) e
 		return fmt.Errorf("failed to parse the target: %w", err)
 	}
 
-	repo, tag := ref.Repository(), ref.Tag()
+	repo := ref.Repository()
 	client, err := remote.New(repo, remote.WithPlainHTTP(cfg.PlainHTTP), remote.WithInsecure(cfg.Insecure))
 	if err != nil {
 		return fmt.Errorf("failed to create remote client: %w", err)
 	}
 
-	_, manifestReader, err := client.Manifests().FetchReference(ctx, tag)
+	_, manifestBody, err := fetchManifest(ctx, client.Manifests(), ref)
 	if err != nil {
-		return fmt.Errorf("failed to fetch the manifest: %w", err)
+		return err
 	}
 
-	defer manifestReader.Close()
-
 	var manifest ocispec.Manifest
-	if err := json.NewDecoder(manifestReader).Decode(&manifest); err != nil {
+	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
 		return fmt.Errorf("failed to decode the manifest: %w", err)
 	}
 

@@ -56,21 +56,20 @@ func (b *backend) pullByDragonfly(ctx context.Context, target string, cfg *confi
 		return fmt.Errorf("failed to parse target: %w", err)
 	}
 
-	registry, repo, tag := ref.Domain(), ref.Repository(), ref.Tag()
+	registry, repo := ref.Domain(), ref.Repository()
 	src, err := remote.New(repo, remote.WithPlainHTTP(cfg.PlainHTTP), remote.WithInsecure(cfg.Insecure), remote.WithProxy(cfg.Proxy))
 	if err != nil {
 		return fmt.Errorf("failed to create remote client: %w", err)
 	}
 
 	// Fetch and decode manifest.
-	_, manifestReader, err := src.Manifests().FetchReference(ctx, tag)
+	_, manifestBody, err := fetchManifest(ctx, src.Manifests(), ref)
 	if err != nil {
-		return fmt.Errorf("failed to fetch manifest: %w", err)
+		return err
 	}
-	defer manifestReader.Close()
 
 	var manifest ocispec.Manifest
-	if err := json.NewDecoder(manifestReader).Decode(&manifest); err != nil {
+	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
 		return fmt.Errorf("failed to decode manifest: %w", err)
 	}
 
