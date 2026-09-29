@@ -132,9 +132,13 @@ func (s *storage) PushManifest(ctx context.Context, repo, reference string, mani
 		return "", err
 	}
 
-	// tag the manifest.
-	if err := repository.Tags(ctx).Tag(ctx, reference, desc); err != nil {
-		return "", err
+	// tag the manifest -- unless it has no tag: a manifest pulled by digest
+	// alone is stored under its digest, which Put above already did, and
+	// neither an empty string nor a digest is a tag.
+	if reference != "" && reference != digest.String() {
+		if err := repository.Tags(ctx).Tag(ctx, reference, desc); err != nil {
+			return "", err
+		}
 	}
 
 	return digest.String(), nil
@@ -302,7 +306,16 @@ func (s *storage) ListTags(ctx context.Context, repo string) ([]string, error) {
 		return nil, err
 	}
 
-	return repository.Tags(ctx).All(ctx)
+	tags, err := repository.Tags(ctx).All(ctx)
+	// A repository that holds only manifests pulled by digest has no tags,
+	// and the tag store reports that as an unknown repository -- which
+	// made `modctl ls` fail on it. No tags is an empty list.
+	var unknown distribution.ErrRepositoryUnknown
+	if errors.As(err, &unknown) {
+		return []string{}, nil
+	}
+
+	return tags, err
 }
 
 // PerformGC performs the garbage collection in the storage to free up the space.
